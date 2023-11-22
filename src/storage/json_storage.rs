@@ -1,12 +1,12 @@
-use crate::storage::storage::{Storage, Repo};
-use std::fs::File;
+use crate::storage::common::{Storage, Repo};
+use std::fs;
 
-struct JsonStorage {
+pub struct JsonStorage {
     file_path: &'static str
 }
 
 impl JsonStorage {
-    fn new(file_path: &'static str) -> JsonStorage {
+    pub fn new(file_path: &'static str) -> JsonStorage {
         JsonStorage {
             file_path
         }
@@ -15,13 +15,16 @@ impl JsonStorage {
 
 impl Storage for JsonStorage {
     fn list_repos(&self) -> Vec<Repo> {
-        let mut file = match File::open(self.file_path) {
+        let raw_string = match fs::read_to_string(self.file_path) {
             Ok(f) => f,
-            Err(error) => panic!("Problem opening the file: {:?}", error),
+            Err(error) => panic!("Problem reading file {:?}: {:?}", self.file_path, error),
         };
 
-        let mut data =
+        let repos: Vec<Repo> = match serde_json::from_str(&raw_string) {
+            Ok(data) => data,
+            Err(error) => panic!("Problem serializing string '{:?}' : {:?}", raw_string, error),
+        };
 
-        vec![]
+        repos
     }
 }

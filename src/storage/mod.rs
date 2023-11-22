@@ -1,2 +1,2 @@
-pub mod storage;
+pub mod common;
 pub mod json_storage;
