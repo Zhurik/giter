@@ -8,5 +8,5 @@ pub struct Repo {
 }
 
 pub trait Storage {
-    fn list_repos(&self) -> Vec<Repo>;
+    fn list_repos(&self) -> &Vec<Repo>;
 }
