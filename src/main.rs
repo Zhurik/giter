@@ -1,3 +1,4 @@
+use clap::Parser;
 use crossterm::{
     event::{self, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -7,12 +8,15 @@ use giter::caller::browser::open_with_hash;
 use giter::k8s::ns::get_current_namespace;
 use giter::k8s::pods::get_pods_image_hashes;
 use giter::storage::common::Storage;
+use giter::config::config::Args;
 use giter::storage::json_storage::JsonStorage;
 use ratatui::{prelude::*, widgets::Paragraph};
 use std::io::{stdout, Result};
 
 fn main() -> Result<()> {
-    let storage = JsonStorage::new("./repos.json");
+    let args = Args::parse();
+
+    let storage = JsonStorage::new(args.storage_path.leak());
     let repos = storage.list_repos();
 
     let commit_hash = &get_pods_image_hashes()[0];
@@ -35,7 +39,7 @@ fn main() -> Result<()> {
             let area = frame.size();
             frame.render_widget(
                 Paragraph::new(format!(
-                    "Calling for this commit: {}\nIn namespace: {}\nPress 'y' to open browser\nPress 'q' to open quit",
+                    "Calling for this commit: {}\nIn namespace: {}\nPress 'y' to open browser\nPress 'q' to quit",
                     commit_hash,
                     current_ns,
                 ))
