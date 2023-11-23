@@ -18,8 +18,6 @@ fn main() -> Result<()> {
     let commit_hash = &get_pods_image_hashes()[0];
     let current_ns = get_current_namespace();
 
-    println!("test");
-
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -45,27 +43,6 @@ fn main() -> Result<()> {
                     //.on_blue(),
                 area,
             );
-
-            // let layout = Layout::default()
-            //     .direction(Direction::Vertical)
-            //     .constraints(constraints)
-            //     .split(frame.size());
-
-            // for (index, repo) in repos.iter().enumerate() {
-            //     frame.render_widget(
-            //         Paragraph::new(
-            //             format!(
-            //                 "Here some {:?} called {:?}",
-            //                 repo.url,
-            //                 repo.name
-            //             )).block(
-            //                 Block::new().borders(
-            //                     Borders::ALL
-            //                 )
-            //             ),
-            //         layout[index]
-            //     );
-            // }
         })?;
 
         if event::poll(std::time::Duration::from_millis(16))? {
