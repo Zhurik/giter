@@ -1,6 +1,5 @@
 use std::process::{Command, Stdio};
 
-
 pub fn get_pods_image_hashes() -> Vec<String> {
     let pods_child = Command::new("kubectl")
         .arg("describe")
@@ -17,17 +16,17 @@ pub fn get_pods_image_hashes() -> Vec<String> {
 
     let raw_string = String::from_utf8(grep_res.stdout).unwrap();
 
-    //vec![]
     let parts = raw_string.split("\n");
 
     let mut raw_hashes: Vec<String> = parts
-        .map(|s| s.split(":")
-                        .nth(2)
-                        .unwrap_or_default()
-                        .split("-")
-                        .nth(0)
-                        .unwrap_or_default()
-            )
+        .map(|s| {
+            s.split(":")
+                .nth(2)
+                .unwrap_or_default()
+                .split("-")
+                .nth(0)
+                .unwrap_or_default()
+        })
         .map(|s| s.to_string())
         .collect();
 
