@@ -3,18 +3,13 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use giter::storage::json_storage::JsonStorage;
-use giter::storage::common::Storage;
-use ratatui::{
-    prelude::*,
-    widgets::Paragraph,
-    widgets::Borders,
-    widgets::Block,
-};
-use std::io::{stdout, Result};
-use giter::k8s::pods::get_pods_image_hashes;
-use giter::k8s::ns::get_current_namespace;
 use giter::caller::browser::open_with_hash;
+use giter::k8s::ns::get_current_namespace;
+use giter::k8s::pods::get_pods_image_hashes;
+use giter::storage::common::Storage;
+use giter::storage::json_storage::JsonStorage;
+use ratatui::{prelude::*, widgets::Paragraph};
+use std::io::{stdout, Result};
 
 fn main() -> Result<()> {
     let storage = JsonStorage::new("./repos.json");
@@ -42,12 +37,12 @@ fn main() -> Result<()> {
             let area = frame.size();
             frame.render_widget(
                 Paragraph::new(format!(
-                    "Calling for this commit: {}\nIn namespace: {}\nPress 'q' to open browser",
+                    "Calling for this commit: {}\nIn namespace: {}\nPress 'y' to open browser\nPress 'q' to open quit",
                     commit_hash,
                     current_ns,
                 ))
-                    .white()
-                    .on_blue(),
+                    .white(),
+                    //.on_blue(),
                 area,
             );
 
@@ -75,9 +70,12 @@ fn main() -> Result<()> {
 
         if event::poll(std::time::Duration::from_millis(16))? {
             if let event::Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    let repo = repos.iter().find(|x| x.name == current_ns).unwrap();
-                    open_with_hash(&repo.url, commit_hash)?;
+                if key.kind == KeyEventKind::Press {
+                    if key.code == KeyCode::Char('y') {
+                        let repo = repos.iter().find(|x| x.name == current_ns).unwrap();
+                        open_with_hash(&repo.url, commit_hash)?;
+                    }
+                    if key.code == KeyCode::Char('q') {}
                     break;
                 }
             }

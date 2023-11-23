@@ -1,8 +1,8 @@
-use crate::storage::common::{Storage, Repo};
+use crate::storage::common::{Repo, Storage};
 use std::fs;
 
 pub struct JsonStorage {
-    repos: Vec<Repo>
+    repos: Vec<Repo>,
 }
 
 impl JsonStorage {
@@ -14,12 +14,13 @@ impl JsonStorage {
 
         let repos: Vec<Repo> = match serde_json::from_str(&raw_string) {
             Ok(data) => data,
-            Err(error) => panic!("Problem serializing string '{:?}' : {:?}", raw_string, error),
+            Err(error) => panic!(
+                "Problem serializing string '{:?}' : {:?}",
+                raw_string, error
+            ),
         };
 
-        JsonStorage {
-            repos
-        }
+        JsonStorage { repos }
     }
 }
 
