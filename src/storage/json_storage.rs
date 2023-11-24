@@ -1,26 +1,23 @@
 use crate::storage::common::{Repo, Storage};
-use std::fs;
+use std::{error::Error, fs};
 
 pub struct JsonStorage {
     repos: Vec<Repo>,
 }
 
 impl JsonStorage {
-    pub fn new(file_path: &'static str) -> JsonStorage {
+    pub fn new(file_path: &'static str) -> Result<JsonStorage, Box<dyn Error>> {
         let raw_string = match fs::read_to_string(file_path) {
             Ok(f) => f,
-            Err(error) => panic!("Problem reading file {:?}: {:?}", file_path, error),
+            Err(e) => return Err(Box::new(e)),
         };
 
         let repos: Vec<Repo> = match serde_json::from_str(&raw_string) {
             Ok(data) => data,
-            Err(error) => panic!(
-                "Problem serializing string '{:?}' : {:?}",
-                raw_string, error
-            ),
+            Err(e) => return Err(Box::new(e)),
         };
 
-        JsonStorage { repos }
+        Ok(JsonStorage { repos })
     }
 }
 
