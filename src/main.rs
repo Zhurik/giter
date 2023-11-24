@@ -5,22 +5,33 @@ use crossterm::{
     ExecutableCommand,
 };
 use giter::caller::browser::open_with_hash;
+use giter::config::config::Args;
 use giter::k8s::ns::get_current_namespace;
 use giter::k8s::pods::get_pods_image_hashes;
 use giter::storage::common::Storage;
-use giter::config::config::Args;
 use giter::storage::json_storage::JsonStorage;
 use ratatui::{prelude::*, widgets::Paragraph};
-use std::io::{stdout, Result};
+use std::io::{stdout, Error, ErrorKind, Result};
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let storage = JsonStorage::new(args.storage_path.leak());
+    let storage = match JsonStorage::new(args.storage_path.leak()) {
+        Ok(x) => x,
+        Err(e) => return Err(Error::new(ErrorKind::InvalidData, e.to_string())),
+    };
+
     let repos = storage.list_repos();
 
+    let current_ns: String = match args.namespace {
+        Some(x) => x,
+        None => match get_current_namespace() {
+            Ok(x) => x,
+            Err(e) => return Err(e),
+        },
+    };
+
     let commit_hash = &get_pods_image_hashes()[0];
-    let current_ns = get_current_namespace();
 
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
