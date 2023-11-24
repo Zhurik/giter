@@ -19,6 +19,10 @@ impl JsonStorage {
 
         Ok(JsonStorage { repos })
     }
+
+    pub fn get_repo_by_name(&self, name: &String) -> Option<&Repo> {
+        self.repos.iter().filter(|r| r.name == *name).next()
+    }
 }
 
 impl Storage for JsonStorage {
