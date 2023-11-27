@@ -12,7 +12,6 @@ use giter::storage::json_storage::JsonStorage;
 use ratatui::{prelude::*, widgets::*};
 use std::io::{stdout, Error, ErrorKind, Result};
 
-//fn main() -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -58,9 +57,9 @@ async fn main() -> Result<()> {
                 let msg = format!("{}", pod.name);
 
                 let line = if i == current_pod && !pressed {
-                    Line::from(msg.on_dark_gray().white())
+                    Line::from(msg.on_white().black())
                 } else if i == current_pod && pressed {
-                    Line::from(msg.on_black().white())
+                    Line::from(msg.on_dark_gray().white())
                 } else {
                     Line::from(msg)
                 };
@@ -89,18 +88,6 @@ async fn main() -> Result<()> {
                     .block(Block::new().borders(Borders::ALL).title("Containers")),
                 layout[1],
             );
-
-            // let area = frame.size();
-            // frame.render_widget(
-            //     Paragraph::new(format!(
-            //         "Calling for this commit: {}\nIn namespace: {}\nPress 'y' to open browser\nPress 'q' to quit",
-            //         commit_hash,
-            //         current_ns,
-            //     ))
-            //         .white(),
-            //         //.on_blue(),
-            //     area,
-            // );
         })?;
 
         if event::poll(std::time::Duration::from_millis(16))? {
