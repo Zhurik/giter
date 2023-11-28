@@ -73,7 +73,6 @@ pub fn process_frames(
         if polled {
             if let Ok(event::Event::Key(key)) = event::read() {
                 if key.kind == KeyEventKind::Press {
-                    if key.code == KeyCode::Char('y') {}
                     if key.code == KeyCode::Char('q') {
                         break;
                     }
