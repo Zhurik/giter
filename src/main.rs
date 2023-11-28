@@ -24,13 +24,19 @@ async fn main() -> Result<()> {
         Some(x) => x,
         None => match get_current_namespace() {
             Ok(x) => x,
-            Err(e) => return Err(Error::other(e.details)),
+            Err(e) => {
+                eprintln!("{}", e.details);
+                std::process::exit(1);
+            }
         },
     };
 
     let pods = match MyPod::get_pods_by_ns(current_ns).await {
         Ok(x) => x,
-        Err(e) => return Err(Error::other(e.details)),
+        Err(e) => {
+            eprintln!("{}", e.details);
+            std::process::exit(1);
+        }
     };
 
     stdout().execute(EnterAlternateScreen)?;
