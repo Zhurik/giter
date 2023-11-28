@@ -9,7 +9,7 @@ use giter::k8s::ns::get_current_namespace;
 use giter::k8s::pods::MyPod;
 use giter::storage::json_storage::JsonStorage;
 use ratatui::prelude::*;
-use std::io::{stdout, Error, ErrorKind, Result};
+use std::io::{stdout, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,7 +17,10 @@ async fn main() -> Result<()> {
 
     let repos: JsonStorage = match JsonStorage::new(args.storage_path.leak()) {
         Ok(x) => x,
-        Err(e) => return Err(Error::new(ErrorKind::InvalidData, e.to_string())),
+        Err(e) => {
+            eprintln!("{}", e.to_string());
+            std::process::exit(1);
+        }
     };
 
     let current_ns: String = match args.namespace {
