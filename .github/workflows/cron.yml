@@ -38,7 +38,7 @@ jobs:
         id: push
         with:
           push: true
-          tags: ${{ env.CR_URI }}/giter:$GITHUB_RUN_ID
+          tags: ${{ env.CR_URI }}/giter:${{ github.run_id }}
 
       - name: send telegram message on success
         if: steps.possible_failure.outcome == 'success'
