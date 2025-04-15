@@ -41,7 +41,7 @@ jobs:
           tags: ${{ env.CR_URI }}/giter:${{ github.run_id }}
 
       - name: send telegram message on success
-        if: steps.possible_failure.outcome == 'success'
+        if: steps.push.outcome == 'success'
         uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_TO }}
@@ -50,7 +50,7 @@ jobs:
             Получилось запушить образ из Github Action
 
       - name: send telegram message on fail
-        if: steps.possible_failure.outcome == 'failure'
+        if: steps.push.outcome == 'failure'
         uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_TO }}
