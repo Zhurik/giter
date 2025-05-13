@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1@sha256:785b3933bb57c282d1c1840c1e6a7b31d0712e6dea8443dbcd57d38d737b70ab AS chef
 WORKDIR /giter
 
 FROM chef AS planner
@@ -14,7 +14,7 @@ COPY . .
 RUN cargo build --release --bin giter
 
 # We do not need the Rust toolchain to run the binary!
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:4b50eb66f977b4062683ff434ef18ac191da862dbe966961bc11990cf5791a8d AS runtime
 WORKDIR /giter
 COPY --from=builder /giter/target/release/giter /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/giter"]
