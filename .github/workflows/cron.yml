@@ -27,29 +27,40 @@ jobs:
 
       - name: Log in to Evolution Artifact Registry
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        continue-on-error: true
+        id: login
         with:
           registry: ${{ env.CR_URI }}
           username: ${{ secrets.EVO_CR_LOGIN }}
           password: ${{ secrets.EVO_CR_PASS }}
 
+      - name: send telegram message about docker login on fail
+        if: steps.login.outcome == 'failure'
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            Ошибка логина из Github Action
+
       - name: Build and push docker image to Evolution Artifact Registry
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6
         continue-on-error: true
         id: push
         with:
           push: true
           tags: ${{ env.CR_URI }}/giter:${{ github.run_id }}
 
-      - name: send telegram message on success
-        if: steps.push.outcome == 'success'
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_TO }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          message: |
-            Получилось запушить образ из Github Action
+      # - name: send telegram message on success
+      #   if: steps.push.outcome == 'success'
+      #   uses: appleboy/telegram-action@master
+      #   with:
+      #     to: ${{ secrets.TELEGRAM_TO }}
+      #     token: ${{ secrets.TELEGRAM_TOKEN }}
+      #     message: |
+      #       Получилось запушить образ из Github Action
 
-      - name: send telegram message on fail
+      - name: send telegram message about docker on fail
         if: steps.push.outcome == 'failure'
         uses: appleboy/telegram-action@master
         with:
