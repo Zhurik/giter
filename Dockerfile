@@ -14,7 +14,7 @@ COPY . .
 RUN cargo build --release --bin giter
 
 # We do not need the Rust toolchain to run the binary!
-FROM debian:bookworm-slim@sha256:2424c1850714a4d94666ec928e24d86de958646737b1d113f5b2207be44d37d8 AS runtime
+FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a AS runtime
 WORKDIR /giter
 COPY --from=builder /giter/target/release/giter /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/giter"]
