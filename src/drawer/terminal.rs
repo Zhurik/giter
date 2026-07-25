@@ -1,150 +1,188 @@
-use crate::caller::browser::open_with_hash;
+use crate::drawer::app::{App, Focus, NamespaceEntry, KEY_HINTS};
 use crate::errors::MsgError;
-use crate::k8s::pods::MyPod;
-use crate::storage::json_storage::JsonStorage;
-use crossterm::event::{self, KeyCode, KeyEventKind};
+use crate::git::remote::{CommitStatus, RemoteState};
+use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
 use ratatui::{prelude::*, widgets::*};
+use std::time::Duration;
+
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+const PAGE: isize = 10;
 
 pub fn process_frames(
     mut terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
-    pods: Vec<MyPod>,
-    repos: JsonStorage,
+    app: &mut App,
 ) -> Result<(), MsgError> {
-    let mut current_pod = 0;
-    let mut current_container = 0;
-    let mut pressed = false;
-
     loop {
-        match terminal.draw(|frame| {
-            let layout = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(frame.size());
-
-            let mut pods_text: Vec<Line> = vec![];
-            let mut conts_text: Vec<Line> = vec![];
-
-            for (i, pod) in pods.iter().enumerate() {
-                let msg = format!("{}", pod.name);
-
-                let line = if i == current_pod && !pressed {
-                    Line::from(msg.on_white().black())
-                } else if i == current_pod && pressed {
-                    Line::from(msg.on_dark_gray().white())
-                } else {
-                    Line::from(msg)
-                };
-                pods_text.push(line);
-
-                if i == current_pod {
-                    for (j, cont) in pod.containers.iter().enumerate() {
-                        let cont_msg = format!("{}", cont.image);
-
-                        let cont_line = if j == current_container && pressed {
-                            Line::from(cont_msg.on_white().black())
-                        } else {
-                            Line::from(cont_msg)
-                        };
-                        conts_text.push(cont_line)
-                    }
-                }
-            }
-            frame.render_widget(
-                Paragraph::new(pods_text).block(Block::new().borders(Borders::ALL).title("Pods")),
-                layout[0],
-            );
-
-            frame.render_widget(
-                Paragraph::new(conts_text)
-                    .block(Block::new().borders(Borders::ALL).title("Containers")),
-                layout[1],
-            );
-        }) {
-            Ok(_) => (),
-            Err(_) => return Err(MsgError::new("There was a problem drawing new frame")),
+        if terminal.draw(|frame| draw(frame, app)).is_err() {
+            return Err(MsgError::new("There was a problem drawing new frame"));
         }
 
-        let polled = match event::poll(std::time::Duration::from_millis(16)) {
+        let polled = match event::poll(POLL_INTERVAL) {
             Ok(x) => x,
             Err(_) => return Err(MsgError::new("There was an error when polling")),
         };
 
         if polled {
-            if let Ok(event::Event::Key(key)) = event::read() {
-                if key.kind == KeyEventKind::Press {
-                    if key.code == KeyCode::Char('q') {
-                        break;
-                    }
-                    if key.code == KeyCode::Up {
-                        if !pressed {
-                            if current_pod > 0 {
-                                current_pod -= 1;
-                            }
-                        } else {
-                            if current_container > 0 {
-                                current_container -= 1;
-                            }
-                        }
-                    }
-                    if key.code == KeyCode::Down {
-                        if !pressed {
-                            if current_pod + 1 < pods.len() {
-                                current_pod += 1;
-                            }
-                        } else {
-                            if current_container + 1 < pods[current_pod].containers.len() {
-                                current_container += 1;
-                            }
-                        }
-                    }
-
-                    if key.code == KeyCode::Enter {
-                        if !pressed {
-                            pressed = true;
-                        } else {
-                            let hash = match pods[current_pod].containers[current_container]
-                                .commit_hash()
-                            {
-                                Ok(x) => x,
-                                Err(e) => return Err(e),
-                            };
-
-                            let url = match repos.get_repo_by_name(&pods[current_pod].namespace) {
-                                Some(x) => &x.url,
-                                None => return Err(MsgError::new("Missing repo in storage")),
-                            };
-
-                            match open_with_hash(&url, &hash) {
-                                Ok(_) => (),
-                                Err(_) => {
-                                    return Err(MsgError::new(
-                                        "There was a problem opening browser",
-                                    ))
-                                }
-                            }
-
-                            break;
-                        }
-                    }
-
-                    if key.code == KeyCode::Right {
-                        if !pressed {
-                            pressed = true;
-                        }
-                    }
-
-                    if key.code == KeyCode::Left {
-                        if pressed {
-                            pressed = false;
-                        }
-                    }
-                }
-            } else {
-                return Err(MsgError::new("There was an error when reading events"));
+            match event::read() {
+                Ok(event::Event::Key(key)) => handle_key(app, key),
+                Ok(_) => (),
+                Err(_) => return Err(MsgError::new("There was an error when reading events")),
             }
         }
+
+        app.drain_lookups();
+
+        if app.should_quit() {
+            return Ok(());
+        }
+    }
+}
+
+fn handle_key(app: &mut App, key: KeyEvent) {
+    if key.kind != KeyEventKind::Press {
+        return;
     }
 
-    Ok(())
+    match key.code {
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+        KeyCode::Char('q') | KeyCode::Esc => app.quit(),
+        KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
+        KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
+        KeyCode::PageUp => app.move_selection(-PAGE),
+        KeyCode::PageDown => app.move_selection(PAGE),
+        KeyCode::Home => app.move_selection(isize::MIN),
+        KeyCode::End => app.move_selection(isize::MAX),
+        KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => app.focus_next(),
+        KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => app.focus_prev(),
+        KeyCode::Enter => app.activate(),
+        KeyCode::Char('m') => app.toggle_mode(),
+        KeyCode::Char('r') => app.refresh_selected(),
+        _ => (),
+    }
+}
+
+fn draw(frame: &mut Frame, app: &mut App) {
+    let root = Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).split(frame.area());
+    let panes = Layout::horizontal([
+        Constraint::Percentage(30),
+        Constraint::Percentage(35),
+        Constraint::Percentage(35),
+    ])
+    .split(root[0]);
+
+    let focus = app.focus();
+    let ns_items = namespace_items(app);
+    let pod_items = pod_items(app);
+    let cont_items = container_items(app);
+    let ns_title = format!("Namespaces ({})", ns_items.len());
+    let pod_title = format!("Pods ({})", pod_items.len());
+    let cont_title = containers_title(app);
+    let footer = format!("{} · {}", app.footer(), KEY_HINTS);
+
+    frame.render_stateful_widget(
+        list(ns_items, ns_title, focus == Focus::Namespaces),
+        panes[0],
+        app.ns_state(),
+    );
+    frame.render_stateful_widget(
+        list(pod_items, pod_title, focus == Focus::Pods),
+        panes[1],
+        app.pod_state(),
+    );
+    frame.render_stateful_widget(
+        list(cont_items, cont_title, focus == Focus::Containers),
+        panes[2],
+        app.cont_state(),
+    );
+
+    frame.render_widget(
+        Paragraph::new(Line::from(footer).style(Style::new().fg(Color::DarkGray))),
+        root[1],
+    );
+}
+
+fn list(items: Vec<ListItem<'static>>, title: String, focused: bool) -> List<'static> {
+    let mut block = Block::new().borders(Borders::ALL).title(title);
+
+    if focused {
+        block = block
+            .border_style(Style::new().fg(Color::Cyan))
+            .title_style(Style::new().add_modifier(Modifier::BOLD));
+    }
+
+    List::new(items)
+        .block(block)
+        .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+}
+
+fn namespace_items(app: &App) -> Vec<ListItem<'static>> {
+    app.namespaces()
+        .iter()
+        .map(|entry| item(namespace_label(entry), app.namespace_status(entry)))
+        .collect()
+}
+
+fn namespace_label(entry: &NamespaceEntry) -> String {
+    match &entry.error {
+        Some(_) => format!("{} (unavailable)", entry.name),
+        None => format!("{} ({})", entry.name, entry.pods.len()),
+    }
+}
+
+fn pod_items(app: &App) -> Vec<ListItem<'static>> {
+    let Some(entry) = app.selected_namespace() else {
+        return vec![];
+    };
+
+    entry
+        .pods
+        .iter()
+        .map(|pod| item(pod.name.clone(), app.pod_status(&entry.name, pod)))
+        .collect()
+}
+
+fn container_items(app: &App) -> Vec<ListItem<'static>> {
+    let Some(entry) = app.selected_namespace() else {
+        return vec![];
+    };
+    let Some(pod) = app.selected_pod() else {
+        return vec![];
+    };
+
+    pod.containers
+        .iter()
+        .map(|cont| {
+            item(
+                format!("{}  {}", cont.name, cont.tag().unwrap_or("no tag")),
+                app.container_status(&entry.name, cont),
+            )
+        })
+        .collect()
+}
+
+/// Shows what the pods are being compared against, so a gray pane is explainable.
+fn containers_title(app: &App) -> String {
+    let Some(entry) = app.selected_namespace() else {
+        return "Containers".to_string();
+    };
+
+    match app.remote(&entry.name) {
+        Some(RemoteState::Ready(target)) => format!("Containers · {}", target.label()),
+        Some(RemoteState::Loading) => "Containers · resolving".to_string(),
+        Some(RemoteState::Failed(reason)) => format!("Containers · {}", reason),
+        None => "Containers".to_string(),
+    }
+}
+
+fn item(label: String, status: CommitStatus) -> ListItem<'static> {
+    ListItem::new(Line::from(label)).style(style_for(status))
+}
+
+fn style_for(status: CommitStatus) -> Style {
+    match status {
+        CommitStatus::Latest => Style::new().fg(Color::Green),
+        CommitStatus::Outdated => Style::new().fg(Color::Red),
+        CommitStatus::Unknown => Style::new().fg(Color::DarkGray),
+    }
 }
