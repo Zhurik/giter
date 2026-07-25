@@ -11,7 +11,9 @@ A small utility for checking which commit is currently deployed in your Kubernet
 
 ## Description
 
-This tool helps you quickly verify what git commit is running in your Kubernetes pods by inspecting pod labels and cross-referencing them with your local git repositories.
+This tool helps you quickly verify what git commit is running in your Kubernetes pods. It reads the commit
+hash out of each container's image tag and compares it with the tip of the repository's default branch, so
+you can see at a glance where a stale build is still running.
 
 ## Installation
 
@@ -29,24 +31,32 @@ giter [OPTIONS]
 
 ### Options
 
-- `-n, --namespace <NAMESPACE>` - Kubernetes namespace to check pods in. If not provided, uses the current namespace from your kubeconfig
+- `-m, --mode <MODE>` - What a pod is expected to run: `commit` (tip of the default branch, the default) or
+  `tag` (the commit behind the latest tag)
+- `-n, --namespace <NAMESPACE>` - Show a single namespace instead of every namespace listed in `repos.json`
 - `-s, --storage-path <PATH>` - Path to the repos.json file (default: `./repos.json`)
 - `-h, --help` - Print help
 - `-V, --version` - Print version
 
 ### Examples
 
-Use current namespace from kubeconfig:
+Every namespace listed in `repos.json`:
 
 ```bash
 giter
 ```
 
-Specify a namespace:
+A single namespace:
 
 ```bash
 giter -n micro-1
 giter --namespace gateway
+```
+
+Production, where every pod is supposed to run the latest tagged release:
+
+```bash
+giter --mode tag
 ```
 
 Specify a custom storage path:
@@ -57,14 +67,44 @@ giter -s /path/to/repos.json
 
 ## How It Works
 
-1. Reads the current namespace from kubeconfig or uses the `-n` flag
-2. Fetches all pods in the specified namespace
-3. Displays pod information with commit hashes
-4. Cross-references commits with local git repositories from `repos.json`
+1. Takes the namespaces from `repos.json`, or the single one given with `-n`
+2. Lists the pods of every namespace in parallel
+3. Asks every repository for its target commit in the background — no API token needed, your existing git
+   credentials apply
+4. Reads the commit hash from each image tag, which CI builds as `<short sha>-<pipeline id>`, and compares it
+   with that target
+
+The target depends on the mode:
+
+- `commit` - `git ls-remote <url> HEAD`, the tip of the default branch
+- `tag` - `git ls-remote --tags --sort=-v:refname <url>`, the commit behind the highest version tag. Sorting is
+  left to `git`, whose version sort puts `v0.1.100` above `v0.1.99` — plain alphabetical would not. Annotated
+  tags are followed to the commit they point at
+
+Both lookups are cached per mode, so toggling with `m` only fetches what is missing.
+
+Colours:
+
+- **green** - running the target commit
+- **red** - running something else
+- **grey** - nothing to compare: a sidecar pinned to a version, a repository without tags, a namespace missing
+  from `repos.json`, or a lookup that is still running or failed
+
+### Keys
+
+| Key | Action |
+| --- | --- |
+| `↑` `↓` / `k` `j` | move within the pane |
+| `←` `→` / `h` `l` / `Tab` | switch pane |
+| `Enter` | walk right through the panes, open the commit in a browser on the last one |
+| `m` | switch between `commit` and `tag` mode |
+| `r` | re-run the lookup for the selected namespace |
+| `q` / `Esc` | quit |
 
 ## repos.json Format
 
-The storage file contains mappings of repository paths to their commit hashes:
+`name` must be the **Kubernetes namespace**, not the repository name — that is what the pods are matched
+against. `url` is the base project URL without a trailing slash; `/-/commit/<hash>` is appended to it.
 
 ```json
 [
@@ -84,10 +124,11 @@ The storage file contains mappings of repository paths to their commit hashes:
 - Rust toolchain
 - Kubernetes access configured via kubeconfig
 - `kubectl` access to the target namespace
+- `git` in `PATH`, with read access to the repositories
 
 ## Roadmap
 
-- [ ] Add tests
+- [x] Add tests
 - [ ] Add custom rules for specifying commit
 - [ ] Optionally use tags
 - [ ] Themes
