@@ -16,4 +16,8 @@ pub struct Args {
     /// Show a single namespace instead of every namespace listed in repos.json
     #[arg(short, long)]
     pub namespace: Option<String>,
+
+    /// Use blue and orange instead of green and red
+    #[arg(long)]
+    pub colorblind: bool,
 }

@@ -16,6 +16,11 @@ impl JsonStorage {
     pub fn get_repo_by_name(&self, name: &str) -> Option<&Repo> {
         self.repos.iter().find(|r| r.name == name)
     }
+
+    #[cfg(test)]
+    pub fn from_repos(repos: Vec<Repo>) -> JsonStorage {
+        JsonStorage { repos }
+    }
 }
 
 impl Storage for JsonStorage {

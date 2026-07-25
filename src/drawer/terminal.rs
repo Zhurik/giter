@@ -1,20 +1,26 @@
-use crate::drawer::app::{App, Focus, NamespaceEntry, KEY_HINTS};
+use crate::drawer::app::{App, Input, Pane, Screen};
+use crate::drawer::chrome::{self, MIN_HEIGHT, MIN_WIDTH, WIDE_WIDTH};
+use crate::drawer::theme::Theme;
+use crate::drawer::{detail, overview};
 use crate::errors::MsgError;
-use crate::git::remote::{CommitStatus, RemoteState};
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
-use ratatui::{prelude::*, widgets::*};
+use ratatui::prelude::*;
+use ratatui::widgets::Block;
 use std::time::Duration;
 
+/// Slow enough to keep the process idle, fast enough for the spinner to turn and for
+/// answers from the background to show up as they land.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const PAGE: isize = 10;
 
 pub fn process_frames(
     mut terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut App,
+    theme: &Theme,
 ) -> Result<(), MsgError> {
     loop {
-        if terminal.draw(|frame| draw(frame, app)).is_err() {
+        if terminal.draw(|frame| draw(frame, app, theme)).is_err() {
             return Err(MsgError::new("There was a problem drawing new frame"));
         }
 
@@ -31,11 +37,81 @@ pub fn process_frames(
             }
         }
 
-        app.drain_lookups();
+        app.tick();
 
         if app.should_quit() {
             return Ok(());
         }
+    }
+}
+
+fn draw(frame: &mut Frame, app: &mut App, theme: &Theme) {
+    let area = frame.area();
+    frame.render_widget(
+        Block::new().style(Style::new().bg(theme.bg).fg(theme.fg)),
+        area,
+    );
+
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        chrome::too_small(frame, area, theme);
+        return;
+    }
+
+    let narrow = area.width < WIDE_WIDTH;
+    app.set_narrow(narrow);
+
+    let [head, rest, status, keys] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+
+    frame.render_widget(
+        match narrow {
+            true => chrome::narrow_header(app, theme, head.width),
+            false => chrome::header(app, theme, head.width),
+        },
+        head,
+    );
+
+    // the controls bar belongs to the overview; the detail screen only borrows it to show
+    // the search prompt, and the narrow layout shows counts in its place
+    let searching = app.input() == Input::Search;
+    let body = match narrow || app.screen() == Screen::Overview || searching {
+        true => {
+            let [bar, body] =
+                Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(rest);
+
+            frame.render_widget(
+                match (searching, narrow) {
+                    (true, _) => chrome::bar(app, theme, bar.width),
+                    (false, true) => chrome::narrow_bar(app, theme, bar.width),
+                    (false, false) => chrome::bar(app, theme, bar.width),
+                },
+                bar,
+            );
+
+            body
+        }
+        false => rest,
+    };
+
+    match (app.screen(), narrow) {
+        (Screen::Overview, false) => overview::draw(frame, body, app, theme),
+        (Screen::Overview, true) => overview::draw_narrow(frame, body, app, theme),
+        (Screen::Detail, wide) => detail::draw(frame, body, app, theme, !wide),
+    }
+
+    frame.render_widget(
+        chrome::status_line(app, theme, status.width, narrow),
+        status,
+    );
+    frame.render_widget(chrome::keys_line(app, theme, keys.width, narrow), keys);
+
+    if app.input() == Input::Help {
+        chrome::help(frame, area, theme);
     }
 }
 
@@ -44,145 +120,72 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        app.quit();
+        return;
+    }
+
+    match app.input() {
+        Input::Help => handle_help(app, key),
+        Input::Search => handle_search(app, key),
+        Input::Normal => handle_normal(app, key),
+    }
+}
+
+fn handle_help(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
-        KeyCode::Char('q') | KeyCode::Esc => app.quit(),
+        KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Esc => app.toggle_help(),
+        _ => (),
+    }
+}
+
+fn handle_search(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Enter => app.end_search(true),
+        KeyCode::Esc => app.end_search(false),
+        KeyCode::Backspace => app.search_pop(),
+        KeyCode::Up => app.move_selection(-1),
+        KeyCode::Down => app.move_selection(1),
+        KeyCode::Char(symbol) => app.search_push(symbol),
+        _ => (),
+    }
+}
+
+fn handle_normal(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char('q') => app.quit(),
+        KeyCode::Esc => app.back(),
         KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
         KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
         KeyCode::PageUp => app.move_selection(-PAGE),
         KeyCode::PageDown => app.move_selection(PAGE),
         KeyCode::Home => app.move_selection(isize::MIN),
         KeyCode::End => app.move_selection(isize::MAX),
-        KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => app.focus_next(),
-        KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => app.focus_prev(),
+        KeyCode::Right | KeyCode::Char('l') => match app.screen() {
+            Screen::Overview => app.open_namespace(),
+            Screen::Detail => app.focus_next(),
+        },
+        KeyCode::Left | KeyCode::Char('h') => match (app.screen(), app.pane()) {
+            // the namespace list is not on screen in the narrow layout, so there is nothing
+            // to the left of the pods but the way back
+            (Screen::Detail, Pane::Pods) if app.narrow() => app.back(),
+            (Screen::Detail, Pane::Namespaces) => app.back(),
+            (Screen::Detail, _) => app.focus_prev(),
+            (Screen::Overview, _) => (),
+        },
+        KeyCode::Tab => match app.screen() {
+            Screen::Detail => app.focus_containers(),
+            Screen::Overview => app.open_namespace(),
+        },
+        KeyCode::BackTab => app.focus_prev(),
         KeyCode::Enter => app.activate(),
         KeyCode::Char('m') => app.toggle_mode(),
         KeyCode::Char('r') => app.refresh_selected(),
+        KeyCode::Char('R') => app.relist_pods(),
+        KeyCode::Char('f') => app.cycle_filter(),
+        KeyCode::Char('s') => app.cycle_sort(),
+        KeyCode::Char('/') => app.start_search(),
+        KeyCode::Char('?') => app.toggle_help(),
         _ => (),
-    }
-}
-
-fn draw(frame: &mut Frame, app: &mut App) {
-    let root = Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).split(frame.area());
-    let panes = Layout::horizontal([
-        Constraint::Percentage(30),
-        Constraint::Percentage(35),
-        Constraint::Percentage(35),
-    ])
-    .split(root[0]);
-
-    let focus = app.focus();
-    let ns_items = namespace_items(app);
-    let pod_items = pod_items(app);
-    let cont_items = container_items(app);
-    let ns_title = format!("Namespaces ({})", ns_items.len());
-    let pod_title = format!("Pods ({})", pod_items.len());
-    let cont_title = containers_title(app);
-    let footer = format!("{} · {}", app.footer(), KEY_HINTS);
-
-    frame.render_stateful_widget(
-        list(ns_items, ns_title, focus == Focus::Namespaces),
-        panes[0],
-        app.ns_state(),
-    );
-    frame.render_stateful_widget(
-        list(pod_items, pod_title, focus == Focus::Pods),
-        panes[1],
-        app.pod_state(),
-    );
-    frame.render_stateful_widget(
-        list(cont_items, cont_title, focus == Focus::Containers),
-        panes[2],
-        app.cont_state(),
-    );
-
-    frame.render_widget(
-        Paragraph::new(Line::from(footer).style(Style::new().fg(Color::DarkGray))),
-        root[1],
-    );
-}
-
-fn list(items: Vec<ListItem<'static>>, title: String, focused: bool) -> List<'static> {
-    let mut block = Block::new().borders(Borders::ALL).title(title);
-
-    if focused {
-        block = block
-            .border_style(Style::new().fg(Color::Cyan))
-            .title_style(Style::new().add_modifier(Modifier::BOLD));
-    }
-
-    List::new(items)
-        .block(block)
-        .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
-}
-
-fn namespace_items(app: &App) -> Vec<ListItem<'static>> {
-    app.namespaces()
-        .iter()
-        .map(|entry| item(namespace_label(entry), app.namespace_status(entry)))
-        .collect()
-}
-
-fn namespace_label(entry: &NamespaceEntry) -> String {
-    match &entry.error {
-        Some(_) => format!("{} (unavailable)", entry.name),
-        None => format!("{} ({})", entry.name, entry.pods.len()),
-    }
-}
-
-fn pod_items(app: &App) -> Vec<ListItem<'static>> {
-    let Some(entry) = app.selected_namespace() else {
-        return vec![];
-    };
-
-    entry
-        .pods
-        .iter()
-        .map(|pod| item(pod.name.clone(), app.pod_status(&entry.name, pod)))
-        .collect()
-}
-
-fn container_items(app: &App) -> Vec<ListItem<'static>> {
-    let Some(entry) = app.selected_namespace() else {
-        return vec![];
-    };
-    let Some(pod) = app.selected_pod() else {
-        return vec![];
-    };
-
-    pod.containers
-        .iter()
-        .map(|cont| {
-            item(
-                format!("{}  {}", cont.name, cont.tag().unwrap_or("no tag")),
-                app.container_status(&entry.name, cont),
-            )
-        })
-        .collect()
-}
-
-/// Shows what the pods are being compared against, so a gray pane is explainable.
-fn containers_title(app: &App) -> String {
-    let Some(entry) = app.selected_namespace() else {
-        return "Containers".to_string();
-    };
-
-    match app.remote(&entry.name) {
-        Some(RemoteState::Ready(target)) => format!("Containers · {}", target.label()),
-        Some(RemoteState::Loading) => "Containers · resolving".to_string(),
-        Some(RemoteState::Failed(reason)) => format!("Containers · {}", reason),
-        None => "Containers".to_string(),
-    }
-}
-
-fn item(label: String, status: CommitStatus) -> ListItem<'static> {
-    ListItem::new(Line::from(label)).style(style_for(status))
-}
-
-fn style_for(status: CommitStatus) -> Style {
-    match status {
-        CommitStatus::Latest => Style::new().fg(Color::Green),
-        CommitStatus::Outdated => Style::new().fg(Color::Red),
-        CommitStatus::Unknown => Style::new().fg(Color::DarkGray),
     }
 }

@@ -3,17 +3,16 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use futures::future::join_all;
 use giter::config::config::Args;
-use giter::drawer::app::{App, NamespaceEntry};
+use giter::drawer::app::App;
 use giter::drawer::terminal::process_frames;
-use giter::k8s::client;
-use giter::k8s::pods::MyPod;
+use giter::drawer::theme::Theme;
+use giter::k8s::{client, context};
 use giter::storage::common::Storage;
 use giter::storage::json_storage::JsonStorage;
 use kube::Client;
 use ratatui::prelude::*;
-use std::io::{stdout, Result};
+use std::io::{stdout, Error, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -38,55 +37,53 @@ async fn main() -> Result<()> {
         Err(e) => fail(&e.details),
     };
 
-    let namespaces = collect_namespaces(&kube_client, names).await;
-    let mut app = App::new(namespaces, repos, args.mode);
+    let cluster = context::current();
+    let theme = Theme::new(cluster.env, args.colorblind);
 
+    // pods and git references are fetched in the background, so the table is on screen
+    // before the cluster has answered anything
+    let mut app = App::new(names, repos, args.mode, cluster, kube_client);
+
+    guard_against_panics();
+
+    let outcome = run(&mut app, &theme);
+    restore();
+
+    match outcome {
+        Err(e) => fail(&e.to_string()),
+        Ok(_) => Ok(()),
+    }
+}
+
+/// Puts the terminal into its drawing state and runs the loop. Restoring it is left to the
+/// caller, so that a failure part way through here cannot strand the user in raw mode.
+fn run(app: &mut App, theme: &Theme) -> Result<()> {
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
+
     let mut terminal: Terminal<CrosstermBackend<std::io::Stdout>> =
         Terminal::new(CrosstermBackend::new(stdout()))?;
     terminal.clear()?;
 
-    let error_msg = match process_frames(terminal, &mut app) {
-        Ok(_) => None,
-        Err(e) => Some(e.details),
-    };
-
-    stdout().execute(LeaveAlternateScreen)?;
-    disable_raw_mode()?;
-
-    match error_msg {
-        Some(x) => fail(&x),
-        None => Ok(()),
-    }
+    // the draw loop blocks its thread; this hands the runtime's other work to another one
+    tokio::task::block_in_place(|| process_frames(terminal, app, theme))
+        .map_err(|e| Error::other(e.details))
 }
 
-/// Lists pods in every namespace at once; a namespace that cannot be read stays in
-/// the list carrying its error instead of disappearing.
-async fn collect_namespaces(client: &Client, names: Vec<String>) -> Vec<NamespaceEntry> {
-    let fetches = names
-        .iter()
-        .map(|name| MyPod::get_pods_by_ns(client, name))
-        .collect::<Vec<_>>();
+/// A panic unwinds past the restore below, which would leave the caller's terminal in raw
+/// mode with no way back short of `reset`.
+fn guard_against_panics() {
+    let report = std::panic::take_hook();
 
-    let results = join_all(fetches).await;
+    std::panic::set_hook(Box::new(move |info| {
+        restore();
+        report(info);
+    }));
+}
 
-    names
-        .into_iter()
-        .zip(results)
-        .map(|(name, result)| match result {
-            Ok(pods) => NamespaceEntry {
-                name,
-                pods,
-                error: None,
-            },
-            Err(e) => NamespaceEntry {
-                name,
-                pods: vec![],
-                error: Some(e.details),
-            },
-        })
-        .collect()
+fn restore() {
+    let _ = stdout().execute(LeaveAlternateScreen);
+    let _ = disable_raw_mode();
 }
 
 fn fail(message: &str) -> ! {
