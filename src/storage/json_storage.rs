@@ -6,22 +6,20 @@ pub struct JsonStorage {
 }
 
 impl JsonStorage {
-    pub fn new(file_path: &'static str) -> Result<JsonStorage, Box<dyn Error>> {
-        let raw_string = match fs::read_to_string(file_path) {
-            Ok(f) => f,
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        let repos: Vec<Repo> = match serde_json::from_str(&raw_string) {
-            Ok(data) => data,
-            Err(e) => return Err(Box::new(e)),
-        };
+    pub fn new(file_path: &str) -> Result<JsonStorage, Box<dyn Error>> {
+        let raw_string = fs::read_to_string(file_path)?;
+        let repos: Vec<Repo> = serde_json::from_str(&raw_string)?;
 
         Ok(JsonStorage { repos })
     }
 
-    pub fn get_repo_by_name(&self, name: &String) -> Option<&Repo> {
-        self.repos.iter().filter(|r| r.name == *name).next()
+    pub fn get_repo_by_name(&self, name: &str) -> Option<&Repo> {
+        self.repos.iter().find(|r| r.name == name)
+    }
+
+    #[cfg(test)]
+    pub fn from_repos(repos: Vec<Repo>) -> JsonStorage {
+        JsonStorage { repos }
     }
 }
 

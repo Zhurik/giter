@@ -15,12 +15,7 @@ pub fn get_current_namespace() -> Result<String, MsgError> {
         None => return Err(MsgError::new("Not current context specified")),
     };
 
-    let context = match config
-        .contexts
-        .iter()
-        .filter(|a| a.name == current_context)
-        .next()
-    {
+    let context = match config.contexts.iter().find(|a| a.name == current_context) {
         Some(named) => match named.context.to_owned() {
             Some(x) => x,
             None => return Err(MsgError::new("Couldn't open proper context")),
@@ -30,6 +25,6 @@ pub fn get_current_namespace() -> Result<String, MsgError> {
 
     match context.namespace {
         Some(x) => Ok(x),
-        None => return Err(MsgError::new("Current namespace is not set")),
+        None => Err(MsgError::new("Current namespace is not set")),
     }
 }
