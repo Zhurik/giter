@@ -36,7 +36,7 @@ jobs:
 
       - name: send telegram message about docker login on fail
         if: steps.login.outcome == 'failure'
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@78c9ef35ffccfe74d3b32e26efcd34c2e283238a # master
         with:
           to: ${{ secrets.TELEGRAM_TO }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
 
       - name: send telegram message about docker on fail
         if: steps.push.outcome == 'failure'
-        uses: appleboy/telegram-action@master
+        uses: appleboy/telegram-action@78c9ef35ffccfe74d3b32e26efcd34c2e283238a # master
         with:
           to: ${{ secrets.TELEGRAM_TO }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
