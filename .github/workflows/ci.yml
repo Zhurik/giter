@@ -1,0 +1,111 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # release-please opens its pull request with GITHUB_TOKEN, which starts no
+  # workflows, so the release workflow dispatches this one on that branch.
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo doc --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -Dwarnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all --locked
+
+  # The same hooks a contributor gets from `pre-commit install`, for the commits
+  # that arrive without them. The cargo ones are skipped: the jobs above already
+  # run those.
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: pre-commit/action@v3.0.1
+        env:
+          SKIP: cargo-fmt,cargo-clippy
+
+  renovate-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npx --yes --package renovate -- renovate-config-validator --strict .github/renovate.json
+
+  # Every release archive is built here too, so a target that stops compiling or
+  # linking surfaces on the pull request and not at release time.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            musl: true
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            musl: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: musl-tools
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+
+  # One stable check for branch protection to require, so the rule does not
+  # have to follow every job and matrix entry above.
+  ci-ok:
+    if: always()
+    needs: [lint, test, hygiene, renovate-config, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job must have passed
+        run: jq -e 'to_entries | all(.value.result == "success")' <<< "$NEEDS"
+        env:
+          NEEDS: ${{ toJSON(needs) }}
