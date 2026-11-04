@@ -3,7 +3,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use giter::config::config::Args;
+use giter::config::args::Args;
 use giter::drawer::app::App;
 use giter::drawer::terminal::process_frames;
 use giter::drawer::theme::Theme;

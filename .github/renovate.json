@@ -1,7 +1,22 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:best-practices"
+    "config:best-practices",
+    ":semanticCommits",
+    ":maintainLockFilesWeekly"
   ],
-  "assigneesFromCodeOwners": true
+  "assigneesFromCodeOwners": true,
+  "labels": ["dependencies"],
+  "automerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "platformAutomerge": false,
+  "packageRules": [
+    {
+      "description": "Group the kube-rs crates: k8s-openapi has to move together with kube",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["kube", "kube-*", "k8s-openapi"],
+      "groupName": "kube-rs"
+    }
+  ]
 }

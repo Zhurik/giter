@@ -1,0 +1,76 @@
+# Hooks for this repository. One-time setup:
+#
+#   pip install pre-commit    # or: brew install pre-commit
+#   pre-commit install --install-hooks
+#
+# `install` wires up all three hook types listed below, so the commit-msg and
+# pre-push checks come along with the pre-commit ones.
+minimum_pre_commit_version: '3.2.0'
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+# Without this a hook that names no stage runs in every one of them, so a
+# single commit would go through the whole set twice.
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Three of these ask upstream to run at push time as well. A commit was
+      # already checked, so pinning the stage keeps a push from rewriting files
+      # under it and failing on a tree it dirtied itself.
+      - id: trailing-whitespace
+        stages: [pre-commit]
+      - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: check-added-large-files
+        stages: [pre-commit]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+
+  # Everything Rust runs through the toolchain the repo is built with, so a
+  # hook can never disagree with CI about which rustfmt or clippy applies.
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+
+      # Lints need the whole crate, so no file names are passed; `files` only
+      # decides whether the hook runs at all.
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --locked -- -D warnings
+        language: system
+        files: \.rs$|^Cargo\.(toml|lock)$
+        pass_filenames: false
+
+      - id: conventional-commit
+        name: conventional commit message
+        entry: scripts/check-commit-msg.sh
+        language: script
+        stages: [commit-msg]
+
+      # The slow pair waits for `git push`: a commit stays cheap, while nothing
+      # reaches the remote without the checks CI would run on it anyway.
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --all --locked
+        language: system
+        files: \.rs$|^Cargo\.(toml|lock)$|^tests/
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Broken intra-doc links are invisible until someone reads the rendered
+      # docs, which is exactly when they are most annoying.
+      - id: cargo-doc
+        name: cargo doc
+        entry: env RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --locked
+        language: system
+        files: \.rs$|^Cargo\.(toml|lock)$
+        pass_filenames: false
+        stages: [pre-push]

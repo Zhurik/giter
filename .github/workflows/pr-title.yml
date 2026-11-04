@@ -1,0 +1,18 @@
+name: pr-title
+
+# Pull requests are squash-merged, so the title becomes the commit on main that
+# release-please reads. It has to be a conventional commit like any other.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
