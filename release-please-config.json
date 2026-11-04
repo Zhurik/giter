@@ -3,7 +3,7 @@
   "release-type": "rust",
   "include-component-in-tag": false,
   "bump-minor-pre-major": true,
-  "bootstrap-sha": "cdf15693995495571e39a8887f7c6609af44efe7",
+  "bootstrap-sha": "bb192cd22cf9aaab6d696cd75b8f63f6ce4c2840",
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },
