@@ -1,0 +1,181 @@
+name: release
+
+# release-please keeps a release pull request open with the next version and the
+# changelog, both derived from the conventional commits on main. Merging it tags
+# the commit and publishes the GitHub release; the jobs below then attach the
+# binaries and bump the Homebrew tap.
+on:
+  push:
+    branches: [main]
+  # Re-attach the binaries to an existing release by hand, e.g. after a failed run.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v0.3.0"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # A pull request opened with GITHUB_TOKEN starts no workflows, so CI is
+      # dispatched on the release branch explicitly to give it checks.
+      - name: Run CI on the release pull request
+        if: steps.release.outputs.prs_created == 'true'
+        run: |
+          branch="$(jq -r '.headBranchName' <<< "$PR")"
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.release.outputs.pr }}
+
+  tag:
+    needs: release-please
+    if: ${{ always() && (needs.release-please.outputs.created == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.tag.outputs.name }}
+    steps:
+      - id: tag
+        run: echo "name=${TAG}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
+
+  build:
+    needs: tag
+    if: ${{ always() && needs.tag.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            musl: true
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            musl: true
+          # Intel macOS is cross-compiled: GitHub is retiring its x86_64 images.
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ needs.tag.outputs.name }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.name }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: musl-tools
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Tag must match the version in Cargo.toml
+        run: |
+          crate="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "${TAG#v}" != "$crate" ]; then
+            echo "::error::tag $TAG does not match version $crate in Cargo.toml"
+            exit 1
+          fi
+
+      - run: cargo build --release --locked --target "$TARGET"
+
+      - name: The binary must match the target it is named after
+        if: runner.os == 'macOS'
+        run: |
+          binary="target/$TARGET/release/giter"
+          case "$TARGET" in
+            x86_64-apple-darwin) lipo -archs "$binary" | grep -qw x86_64 ;;
+            aarch64-apple-darwin) lipo -archs "$binary" | grep -qw arm64 ;;
+          esac
+
+      # The archive name carries the tag: the Homebrew tap reads the version
+      # out of it.
+      - name: Pack the archive
+        run: |
+          name="giter-$TAG-$TARGET"
+          mkdir -p "dist/$name"
+          cp README.md LICENSE "dist/$name/"
+          cd dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "../target/$TARGET/release/giter.exe" "$name/"
+            archive="$name.zip"
+            7z a -bd "$archive" "$name" > /dev/null
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            cp "../target/$TARGET/release/giter" "$name/"
+            archive="$name.tar.gz"
+            tar -czf "$archive" "$name"
+            shasum -a 256 "$archive" > "$archive.sha256"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+
+  upload:
+    needs: [tag, build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach the archives and SHA256SUMS to the release
+        run: |
+          cat dist/*.sha256 > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" dist/*.tar.gz dist/*.zip SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.name }}
+
+  bump-tap:
+    needs: [tag, upload]
+    if: ${{ always() && needs.upload.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the tap to re-render the formula
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::TAP_DISPATCH_TOKEN is not set; the Homebrew formula was not bumped"
+            exit 0
+          fi
+          gh workflow run bump.yml --repo Zhurik/homebrew-tap \
+            --field repo="$GITHUB_REPOSITORY" --field tag="$TAG"
+        env:
+          GH_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+          TAG: ${{ needs.tag.outputs.name }}
