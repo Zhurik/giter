@@ -1,11 +1,8 @@
 # What The Commit (WTC)
 
-![Rust](https://img.shields.io/badge/rust-1.75+-orange)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-0.1.0-green)
-![Build Status](https://img.shields.io/github/actions/workflow/status/amzhuravlev/giter/rust.yml?branch=main)
-![Tests](https://img.shields.io/github/actions/workflow/status/amzhuravlev/giter/rust.yml?branch=main&label=tests)
-![Code Coverage](https://img.shields.io/codecov/c/github/amzhuravlev/giter)
+[![ci](https://github.com/Zhurik/giter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Zhurik/giter/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/Zhurik/giter)](https://github.com/Zhurik/giter/releases/latest)
+[![license](https://img.shields.io/github/license/Zhurik/giter)](LICENSE)
 
 A small utility for checking which commit is currently deployed in your Kubernetes pods.
 
@@ -21,10 +18,18 @@ mistaking production for staging is the easiest mistake to make.
 
 ## Installation
 
-Build from source:
+With [Homebrew](https://brew.sh), on macOS (Apple silicon and Intel) and Linux (x86_64 and arm64):
 
 ```bash
-cargo build --release
+brew install Zhurik/tap/giter
+```
+
+`brew upgrade giter` picks up new releases. Otherwise take the archive for your platform — Windows included —
+from [Releases](https://github.com/Zhurik/giter/releases/latest) and put the binary into your `PATH`, or build it
+yourself:
+
+```bash
+cargo install --git https://github.com/Zhurik/giter --locked
 ```
 
 ## Usage
@@ -171,10 +176,15 @@ against. `url` is the base project URL without a trailing slash; `/-/commit/<has
 
 ## Requirements
 
-- Rust toolchain
+- Rust toolchain, only when building from source
 - Kubernetes access configured via kubeconfig
 - `kubectl` access to the target namespace
 - `git` in `PATH`, with read access to the repositories
+
+## Contributing
+
+Lints, tests and the commit message convention are described in [CONTRIBUTING.md](CONTRIBUTING.md); how a
+version gets released is in [docs/releasing.md](docs/releasing.md).
 
 ## Roadmap
 
