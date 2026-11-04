@@ -2,6 +2,9 @@
 name = "giter"
 version = "0.2.0"
 edition = "2021"
+description = "Check which commit is deployed in your Kubernetes pods"
+license = "MIT"
+repository = "https://github.com/Zhurik/giter"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
