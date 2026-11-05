@@ -2,7 +2,7 @@ use crate::errors::MsgError;
 use crate::git::remote::ImageRef;
 use crate::text::short_duration;
 use k8s_openapi::api::core::v1::{Pod, PodStatus};
-use k8s_openapi::chrono::{DateTime, Utc};
+use k8s_openapi::jiff::Timestamp;
 use kube::{
     api::{Api, ListParams},
     Client,
@@ -77,7 +77,7 @@ pub struct MyPod {
     pub status: String,
     pub restarts: i32,
     pub ready: usize,
-    pub created: Option<DateTime<Utc>>,
+    pub created: Option<Timestamp>,
     /// The pod has run its course and is not deploying anything any more. What a CronJob
     /// leaves behind ran the code that was current at the time, and says nothing about what
     /// is deployed now.
@@ -115,10 +115,10 @@ impl MyPod {
     }
 
     /// How long the pod has been around, in the compact shape `kubectl` uses.
-    pub fn age(&self, now: DateTime<Utc>) -> Option<String> {
+    pub fn age(&self, now: Timestamp) -> Option<String> {
         let created = self.created?;
 
-        Some(short_duration((now - created).num_seconds()))
+        Some(short_duration(now.as_second() - created.as_second()))
     }
 
     /// Ready containers over total, e.g. `2/2`.
@@ -207,7 +207,7 @@ mod tests {
         ContainerState, ContainerStateTerminated, ContainerStateWaiting, ContainerStatus, PodSpec,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-    use k8s_openapi::chrono::TimeZone;
+    use k8s_openapi::jiff::{civil, tz::TimeZone};
     use speculoos::prelude::*;
 
     fn container(image: &str) -> MyContainer {
@@ -259,8 +259,11 @@ mod tests {
         }
     }
 
-    fn at(year: i32, month: u32, day: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap()
+    fn at(year: i16, month: i8, day: i8) -> Timestamp {
+        civil::datetime(year, month, day, 12, 0, 0, 0)
+            .to_zoned(TimeZone::UTC)
+            .unwrap()
+            .timestamp()
     }
 
     #[test]
