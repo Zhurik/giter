@@ -8,7 +8,7 @@ use crate::k8s::context::Cluster;
 use crate::k8s::pods::{MyContainer, MyPod};
 use crate::storage::json_storage::JsonStorage;
 use crate::text::{family_prefix, shared_prefix, short_duration, split_pod_name};
-use k8s_openapi::chrono::Utc;
+use k8s_openapi::jiff::Timestamp;
 use kube::Client;
 use ratatui::widgets::TableState;
 use std::collections::HashMap;
@@ -538,7 +538,7 @@ impl App {
         let Some(entry) = self.selected_entry() else {
             return vec![];
         };
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         entry
             .pod_list()
