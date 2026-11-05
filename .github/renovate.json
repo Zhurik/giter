@@ -13,10 +13,11 @@
   "platformAutomerge": false,
   "packageRules": [
     {
-      "description": "Group the kube-rs crates: k8s-openapi has to move together with kube",
+      "description": "Group the kube-rs crates: k8s-openapi has to move together with kube, majors included",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["kube", "kube-*", "k8s-openapi"],
-      "groupName": "kube-rs"
+      "groupName": "kube-rs",
+      "separateMajorMinor": false
     }
   ]
 }
